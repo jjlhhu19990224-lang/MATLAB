@@ -1,95 +1,106 @@
-function [fnn1M, fnn2M, fnnTotalM] = FalseNearestNeighbors3Criteria(xV,tauV,mV,escape,theiler)
-% -----------------------------------------------------------
-% 计算三种虚假邻近点判据 FNN：
-%   1) 判据 1：R_{m+1}^2 / R_m^2 > escape^2
-%   2) 判据 2：|x(i+mτ)-x(j+mτ)| / std(x) > escape
-%   3) 联合判据：以上两者之一成立
+function fnnM = FalseNearestNeighbors(xV,tauV,mV,escape,theiler)
+% fnnM = FalseNearestNeighbors(xV,tauV,mV,escape,theiler)
+% FALSENEARESTNEIGHBORS computes the percentage of false nearest neighbors
+% for a range of delays in 'tauV' and embedding dimensions in 'mV'.
+% INPUT 
+%  xV       : Vector of the scalar time series
+%  tauV     : A vector of the delay times.
+%  mV       : A vector of the embedding dimension.
+%  escape   : A factor of escaping from the neighborhood. Default=10.
+%  theiler  : the Theiler window to exclude time correlated points in the
+%             search for neighboring points. Default=0.
+% OUTPUT: 
+%  fnnM     : A matrix of size 'ntau' x 'nm', where 'ntau' is the number of
+%             given delays and 'nm' is the number of given embedding
+%             dimensions, containing the percentage of false nearest
+%             neighbors.
+%========================================================================
+%     <FalseNearestNeighbors.m>, v 1.0 2010/02/11 22:09:14  Kugiumtzis & Tsimpiris
+%     This is part of the MATS-Toolkit http://eeganalysis.web.auth.gr/
+%========================================================================
+% Copyright (C) 2010 by Dimitris Kugiumtzis and Alkiviadis Tsimpiris 
+%                       <dkugiu@gen.auth.gr>
+%========================================================================
+% Version: 1.0
+% LICENSE:
+%     This program is free software; you can redistribute it and/or modify
+%     it under the terms of the GNU General Public License as published by
+%     the Free Software Foundation; either version 3 of the License, or
+%     any later version.
 %
-% 不依赖 MATS，不调用 kdtreeidx，完全基于 KDTreeSearcher。
-% -----------------------------------------------------------
-
-if nargin < 4 || isempty(escape), escape = 10; end
-if nargin < 5 || isempty(theiler), theiler = 0; end
-
-xV = xV(:);
+%     This program is distributed in the hope that it will be useful,
+%     but WITHOUT ANY WARRANTY; without even the implied warranty of
+%     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%     GNU General Public License for more details.
+%
+%     You should have received a copy of the GNU General Public License
+%     along with this program. If not, see http://www.gnu.org/licenses/>.
+%=========================================================================
+% Reference : D. Kugiumtzis and A. Tsimpiris, "Measures of Analysis of Time Series (MATS): 
+% 	          A Matlab  Toolkit for Computation of Multiple Measures on Time Series Data Bases",
+%             Journal of Statistical Software, in press, 2010
+% Link      : http://eeganalysis.web.auth.gr/
+%========================================================================= 
+fthres = 0.1; % A factor of the data SD to be used as the maximum radius 
+              % for searching for valid nearest neighbor.
+propthres = fthres; % Limit for the proportion of valid points, i.e. points 
+                    % for which a nearest neighbor was found. If the proporion 
+                    % of valid points is beyond this limit, do not compute
+                    % FNN.
+              
 n = length(xV);
-
-% 归一化并添加微小噪声避免重复点
-xmin = min(xV); xmax = max(xV);
-xV = (xV - xmin) / (xmax - xmin);
-xV = xV + 1e-10*randn(size(xV));
-
-sig = std(xV);
-
+if isempty(escape), escape=10; end
+if isempty(theiler), theiler=0; end
+% Rescale to [0,1] and add infinitesimal noise to have distinct samples
+tic
+xmin = min(xV);
+xmax = max(xV);
+xV = (xV - xmin) / (xmax-xmin);
+t=toc;
+xV = AddNoise(xV,10^(-10));
+rthres = fthres*std(xV); % The maximum distance to look for nearest neighbor
 ntau = length(tauV);
-nm   = length(mV);
-
-fnn1M     = NaN(ntau,nm);
-fnn2M     = NaN(ntau,nm);
-fnnTotalM = NaN(ntau,nm);
-
-% -------- 主循环 --------
+nm = length(mV);
+fnnM = NaN*ones(ntau,nm);
 for itau = 1:ntau
     tau = tauV(itau);
-
-    for im = 1:nm
+    for im=1:nm
         m = mV(im);
-
-        nvec = n - m*tau;
-        if nvec - theiler < 2
+        nvec = n-m*tau; % to be able to add the component x(nvec+tau) for m+1 
+        if nvec-theiler < 2
             break;
         end
-
-        % 组建 m 维嵌入
-        X = zeros(nvec,m);
-        for k = 1:m
-            X(:,m-k+1) = xV(1+(k-1)*tau : nvec+(k-1)*tau);
+        xM = NaN*ones(nvec,m);
+        for i=1:m
+            xM(:,m-i+1) = xV(1+(i-1)*tau:nvec+(i-1)*tau);
         end
-
-        % 构建 KD 树
-        kd = KDTreeSearcher(X);
-
-        idxV  = NaN(nvec,1);
-        distV = NaN(nvec,1);
-
-        % 搜索最近邻
-        for i = 1:nvec
-            % 找两个最近邻（自身 + 最近的邻居）
-            [ind,dist] = knnsearch(kd, X(i,:), "K", 3);
-
-            % 排除自身
-            ind = ind(2:end);
-            dist = dist(2:end);
-
-            % Theiler window
-            valid = find(abs(ind - i) > theiler);
-            if isempty(valid), continue; end
-
-            idxV(i)  = ind(valid(1));
-            distV(i) = dist(valid(1));
+        % k-d-tree data structure of the training set for the given m
+        [tmp,tmp,TreeRoot]=kdtreeidx(xM,[]); 
+        % For each target point, find the nearest neighbor, and check whether 
+        % the distance increase over the escape distance by adding the next
+        % component for m+1.
+        idxV = NaN*ones(nvec,1);
+        distV = NaN*ones(nvec,1);
+        for i=1:nvec
+            tarV = xM(i,:);
+            [neiM,neidisV,neiindV]=kdrangequery(TreeRoot,tarV,rthres*sqrt(m));
+            [oneidisV,oneiindV]=sort(neidisV);
+            neiindV = neiindV(oneiindV);
+            neidisV = neidisV(oneiindV);
+            iV = find(abs(neiindV(1)-neiindV(2:end))>theiler);
+            if ~isempty(iV)
+                idxV(i) = neiindV(iV(1)+1);
+                distV(i) = neidisV(iV(1)+1);
+            end
+        end % for i
+        iV = find(~isnan(idxV));
+        nproper = length(iV);
+        % Compute fnn only if there is a sufficient number of target points 
+        % having nearest neighbor (in R^m) withing the threshold distance
+        if nproper>propthres*nvec
+            nnfactorV = 1+(xV(iV+m*tau)-xV(idxV(iV)+m*tau)).^2./distV(iV).^2;
+            fnnM(itau,im) = length(find(nnfactorV > escape^2))/nproper;
         end
-
-        valid = find(~isnan(idxV));
-        nproper = length(valid);
-
-        if nproper < 0.1*nvec
-            continue;
-        end
-
-        % --- 计算判据 ---
-        Rm2  = distV(valid).^2;
-        Rm1p = (xV(valid+m*tau) - xV(idxV(valid)+m*tau)).^2;
-
-        nnratio = 1 + Rm1p ./ Rm2;              % 判据 1 指标
-        rawDist = sqrt(Rm1p);                   % 判据 2 指标
-
-        fnn1     = mean(nnratio > escape^2);
-        fnn2     = mean(rawDist > escape * sig);
-        fnnTotal = mean((nnratio > escape^2) | (rawDist > escape*sig));
-
-        fnn1M(itau,im)     = fnn1;
-        fnn2M(itau,im)     = fnn2;
-        fnnTotalM(itau,im) = fnnTotal;
+        kdtreeidx([],[],TreeRoot); % Free the pointer to k-d-tree
     end
-end
 end
