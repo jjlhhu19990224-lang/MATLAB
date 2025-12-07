@@ -75,7 +75,7 @@ for itau = 1:ntau
             xM(:,m-i+1) = xV(1+(i-1)*tau:nvec+(i-1)*tau);
         end
         % k-d-tree data structure of the training set for the given m
-        [tmp,tmp,TreeRoot]=kdtreeidx(xM,[]); 
+        TreeRoot = createns(xM,'NSMethod','kdtree');
         % For each target point, find the nearest neighbor, and check whether 
         % the distance increase over the escape distance by adding the next
         % component for m+1.
@@ -83,14 +83,18 @@ for itau = 1:ntau
         distV = NaN*ones(nvec,1);
         for i=1:nvec
             tarV = xM(i,:);
-            [neiM,neidisV,neiindV]=kdrangequery(TreeRoot,tarV,rthres*sqrt(m));
-            [oneidisV,oneiindV]=sort(neidisV);
-            neiindV = neiindV(oneiindV);
-            neidisV = neidisV(oneiindV);
-            iV = find(abs(neiindV(1)-neiindV(2:end))>theiler);
-            if ~isempty(iV)
-                idxV(i) = neiindV(iV(1)+1);
-                distV(i) = neidisV(iV(1)+1);
+            [neiindCell,neidisCell] = rangesearch(TreeRoot,tarV,rthres*sqrt(m));
+            neiindV = neiindCell{1}';
+            neidisV = neidisCell{1}';
+            if numel(neiindV) > 1
+                [oneidisV,oneiindV] = sort(neidisV);
+                neiindV = neiindV(oneiindV);
+                neidisV = neidisV(oneiindV);
+                iV = find(abs(neiindV(1)-neiindV(2:end))>theiler);
+                if ~isempty(iV)
+                    idxV(i) = neiindV(iV(1)+1);
+                    distV(i) = neidisV(iV(1)+1);
+                end
             end
         end % for i
         iV = find(~isnan(idxV));
@@ -101,6 +105,7 @@ for itau = 1:ntau
             nnfactorV = 1+(xV(iV+m*tau)-xV(idxV(iV)+m*tau)).^2./distV(iV).^2;
             fnnM(itau,im) = length(find(nnfactorV > escape^2))/nproper;
         end
-        kdtreeidx([],[],TreeRoot); % Free the pointer to k-d-tree
+        % No manual cleanup required for the KD-tree object created by
+        % 'createns'.
     end
 end
