@@ -9,11 +9,17 @@ function fnnM = FalseNearestNeighbors(xV,tauV,mV,escape,theiler)
 %  escape   : A factor of escaping from the neighborhood. Default=10.
 %  theiler  : the Theiler window to exclude time correlated points in the
 %             search for neighboring points. Default=0.
-% OUTPUT: 
+% OUTPUT:
 %  fnnM     : A matrix of size 'ntau' x 'nm', where 'ntau' is the number of
 %             given delays and 'nm' is the number of given embedding
 %             dimensions, containing the percentage of false nearest
-%             neighbors.
+%             neighbors. Values remain NaN when too few valid neighbors are
+%             found (fewer than 'propthres' of the vectors). When scanning
+%             dimensions, a value dropping below a chosen tolerance (e.g.,
+%             0.05) before NaNs appear usually indicates a sufficient
+%             embedding; persistent values above the tolerance suggest
+%             increasing 'm', relaxing the threshold, or adjusting 'tau'
+%             until a reliable decline is observed.
 %========================================================================
 %     <FalseNearestNeighbors.m>, v 1.0 2010/02/11 22:09:14  Kugiumtzis & Tsimpiris
 %     This is part of the MATS-Toolkit http://eeganalysis.web.auth.gr/
