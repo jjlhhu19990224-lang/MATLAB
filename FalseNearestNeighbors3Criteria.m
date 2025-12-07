@@ -14,12 +14,24 @@ if nargin < 5 || isempty(theiler), theiler = 0; end
 xV = xV(:);
 n = length(xV);
 
+% 保留原始信号用于判据 2 的幅值计算
+xOrig = xV;
+origSig = std(xOrig);
+origSigSafe = max(origSig, eps);
+
 % 归一化并添加微小噪声避免重复点
 xmin = min(xV); xmax = max(xV);
-xV = (xV - xmin) / (xmax - xmin);
+rangeX = xmax - xmin;
+if rangeX > 0
+    xV = (xV - xmin) / rangeX;
+else
+    % 常值序列时直接返回零矩阵
+    fnn1M = zeros(length(tauV), length(mV));
+    fnn2M = fnn1M;
+    fnnTotalM = fnn1M;
+    return;
+end
 xV = xV + 1e-10*randn(size(xV));
-
-sig = std(xV);
 
 ntau = length(tauV);
 nm   = length(mV);
@@ -81,12 +93,14 @@ for itau = 1:ntau
         Rm1p = (xV(valid+m*tau) - xV(idxV(valid)+m*tau)).^2;
 
         nnratio = 1 + Rm1p ./ Rm2;              % 判据 1 指标
-        rawDist = sqrt(Rm1p);                   % 判据 2 指标
+
+        % 判据 2 使用原始幅值计算，避免归一化导致阈值过大
+        rawDist = abs(xOrig(valid+m*tau) - xOrig(idxV(valid)+m*tau));
+        fnn2    = mean(rawDist > escape * origSigSafe);
 
         fnn1     = mean(nnratio > escape^2);
-        fnn2     = mean(rawDist > escape * sig);
-        fnnTotal = mean((nnratio > escape^2) | (rawDist > escape*sig));
-
+        fnnTotal = mean((nnratio > escape^2) | (rawDist > escape*origSigSafe));
+        
         fnn1M(itau,im)     = fnn1;
         fnn2M(itau,im)     = fnn2;
         fnnTotalM(itau,im) = fnnTotal;
