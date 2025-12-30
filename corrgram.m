@@ -129,6 +129,26 @@ if nargout == 0
     xlabel('Time'), ylabel('Lag'), axis xy
     title('Windowed cross correlation', 'fontweight', 'bold')
     colorbar
+    
+    % highlight the maximum correlation coefficient within each window and
+    % connect them with a black line
+    [maxCorrPerWindow, maxLagIdx] = max(C, [], 1);
+    hold on
+    plot(t, l(maxLagIdx), 'ko', 'MarkerFaceColor', 'w', 'MarkerSize', 4)
+    
+    ax1 = gca;
+    ax2 = axes('Position', get(ax1, 'Position'), ...
+               'XAxisLocation', 'bottom', ...
+               'YAxisLocation', 'right', ...
+               'Color', 'none', ...
+               'XLim', get(ax1, 'XLim'), ...
+               'YLim', [min([maxCorrPerWindow - 0.05, -1]) ...
+                        max([maxCorrPerWindow + 0.05, 1])]);
+    hold(ax2, 'on')
+    plot(ax2, t, maxCorrPerWindow, 'k-', 'LineWidth', 1.2)
+    ylabel(ax2, 'Max correlation coefficient')
+    set(ax2, 'YAxisColor', 'k')
+    linkaxes([ax1 ax2], 'x')
 elseif nargout == 1,
     c_out = C;
 elseif nargout == 2,
