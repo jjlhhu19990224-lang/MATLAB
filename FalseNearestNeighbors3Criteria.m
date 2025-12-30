@@ -9,11 +9,17 @@ function fnnM = FalseNearestNeighbors(xV,tauV,mV,escape,theiler)
 %  escape   : A factor of escaping from the neighborhood. Default=10.
 %  theiler  : the Theiler window to exclude time correlated points in the
 %             search for neighboring points. Default=0.
-% OUTPUT: 
+% OUTPUT:
 %  fnnM     : A matrix of size 'ntau' x 'nm', where 'ntau' is the number of
 %             given delays and 'nm' is the number of given embedding
 %             dimensions, containing the percentage of false nearest
-%             neighbors.
+%             neighbors. Values remain NaN when too few valid neighbors are
+%             found (fewer than 'propthres' of the vectors). When scanning
+%             dimensions, a value dropping below a chosen tolerance (e.g.,
+%             0.05) before NaNs appear usually indicates a sufficient
+%             embedding; persistent values above the tolerance suggest
+%             increasing 'm', relaxing the threshold, or adjusting 'tau'
+%             until a reliable decline is observed.
 %========================================================================
 %     <FalseNearestNeighbors.m>, v 1.0 2010/02/11 22:09:14  Kugiumtzis & Tsimpiris
 %     This is part of the MATS-Toolkit http://eeganalysis.web.auth.gr/
@@ -75,7 +81,7 @@ for itau = 1:ntau
             xM(:,m-i+1) = xV(1+(i-1)*tau:nvec+(i-1)*tau);
         end
         % k-d-tree data structure of the training set for the given m
-        [tmp,tmp,TreeRoot]=kdtreeidx(xM,[]); 
+        TreeRoot = createns(xM,'NSMethod','kdtree');
         % For each target point, find the nearest neighbor, and check whether 
         % the distance increase over the escape distance by adding the next
         % component for m+1.
@@ -83,14 +89,18 @@ for itau = 1:ntau
         distV = NaN*ones(nvec,1);
         for i=1:nvec
             tarV = xM(i,:);
-            [neiM,neidisV,neiindV]=kdrangequery(TreeRoot,tarV,rthres*sqrt(m));
-            [oneidisV,oneiindV]=sort(neidisV);
-            neiindV = neiindV(oneiindV);
-            neidisV = neidisV(oneiindV);
-            iV = find(abs(neiindV(1)-neiindV(2:end))>theiler);
-            if ~isempty(iV)
-                idxV(i) = neiindV(iV(1)+1);
-                distV(i) = neidisV(iV(1)+1);
+            [neiindCell,neidisCell] = rangesearch(TreeRoot,tarV,rthres*sqrt(m));
+            neiindV = neiindCell{1}';
+            neidisV = neidisCell{1}';
+            if numel(neiindV) > 1
+                [oneidisV,oneiindV] = sort(neidisV);
+                neiindV = neiindV(oneiindV);
+                neidisV = neidisV(oneiindV);
+                iV = find(abs(neiindV(1)-neiindV(2:end))>theiler);
+                if ~isempty(iV)
+                    idxV(i) = neiindV(iV(1)+1);
+                    distV(i) = neidisV(iV(1)+1);
+                end
             end
         end % for i
         iV = find(~isnan(idxV));
@@ -101,6 +111,7 @@ for itau = 1:ntau
             nnfactorV = 1+(xV(iV+m*tau)-xV(idxV(iV)+m*tau)).^2./distV(iV).^2;
             fnnM(itau,im) = length(find(nnfactorV > escape^2))/nproper;
         end
-        kdtreeidx([],[],TreeRoot); % Free the pointer to k-d-tree
+        % No manual cleanup required for the KD-tree object created by
+        % 'createns'.
     end
 end
